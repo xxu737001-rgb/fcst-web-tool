@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 
 
 st.set_page_config(
-    page_title="FCST 月末总表生成工具",
+    page_title="FCST 生成工具-区分客户类型-月末",
     layout="wide",
 )
 
@@ -47,7 +47,7 @@ def require_password() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    st.title("FCST 月末总表生成工具")
+    st.title("FCST 生成工具-区分客户类型-月末")
 
     with st.form("login_form"):
         password = st.text_input("访问密码", type="password")
@@ -829,7 +829,7 @@ def main() -> None:
     if not require_password():
         return
 
-    st.title("FCST 月末总表生成工具")
+    st.title("FCST 生成工具-区分客户类型-月末")
 
     settings_col, action_col = st.columns([1, 2])
 
