@@ -578,7 +578,7 @@ def main() -> None:
     if not require_password():
         return
 
-    st.title("FCST 总表生成工具")
+    st.title("FCST 生成工具-TOBTOC")
 
     settings_col, action_col = st.columns([1, 2])
 
