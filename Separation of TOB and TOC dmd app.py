@@ -10,7 +10,7 @@ import streamlit as st
 from dateutil.relativedelta import relativedelta
 
 
-st.set_page_config(page_title="FCST 总表生成工具", layout="wide")
+st.set_page_config(page_title="FCST 生成工具-TOBTOC", layout="wide")
 
 
 BRANDS = ["MOVA", "追觅", "Arçelik", "Beko", "光子跃迁"]
