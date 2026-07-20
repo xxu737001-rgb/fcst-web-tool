@@ -42,7 +42,7 @@ def require_password() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    st.title("FCST 总表生成工具")
+    st.title("FCST 生成工具-TOBTOC")
 
     with st.form("login_form"):
         password = st.text_input("访问密码", type="password")
