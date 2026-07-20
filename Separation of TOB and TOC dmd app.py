@@ -4,19 +4,20 @@ import os
 import re
 from datetime import date
 from io import BytesIO
+from numbers import Real
 
 import pandas as pd
 import streamlit as st
 from dateutil.relativedelta import relativedelta
 
 
-st.set_page_config(page_title="FCST 生成工具-TOBTOC", layout="wide")
+st.set_page_config(page_title="FCST 生成工具-区分客户类型版", layout="wide")
 
 
 BRANDS = ["MOVA", "追觅", "Arçelik", "Beko", "光子跃迁"]
 MASTER_COLUMNS = ["品牌", "BU", "项目号", "物料编码", "系列", "版本"]
 DEMAND_COLUMNS = ["m_1", "m_2", "m_3", "m_4", "m_5"]
-DELIVERY_TYPES = ["TO-B", "TO-C"]
+DELIVERY_TYPES = ["TO-B", "TO-C", "TO-MKT"]
 
 
 class WorkbookError(ValueError):
@@ -28,7 +29,9 @@ def require_password() -> bool:
 
     if not app_password:
         try:
-            app_password = str(st.secrets.get("APP_PASSWORD", "")).strip()
+            app_password = str(
+                st.secrets.get("APP_PASSWORD", "")
+            ).strip()
         except Exception:
             app_password = ""
 
@@ -42,7 +45,7 @@ def require_password() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    st.title("FCST 生成工具-TOBTOC")
+    st.title("FCST 生成工具-区分客户类型版")
 
     with st.form("login_form"):
         password = st.text_input("访问密码", type="password")
@@ -63,7 +66,11 @@ def assert_columns(
     required_columns: list[str],
     workbook_name: str,
 ) -> None:
-    missing = [column for column in required_columns if column not in frame.columns]
+    missing = [
+        column
+        for column in required_columns
+        if column not in frame.columns
+    ]
 
     if missing:
         raise WorkbookError(
@@ -75,7 +82,11 @@ def normalize_identifier(value):
     if pd.isna(value):
         return pd.NA
 
-    if isinstance(value, float) and value.is_integer():
+    if (
+        isinstance(value, Real)
+        and not isinstance(value, bool)
+        and float(value).is_integer()
+    ):
         return str(int(value))
 
     text = str(value).strip()
@@ -83,8 +94,17 @@ def normalize_identifier(value):
 
 
 def make_key(frame: pd.DataFrame) -> pd.Series:
-    brand = frame["品牌"].map(normalize_identifier).astype("string")
-    sku = frame["SKU"].map(normalize_identifier).astype("string")
+    brand = (
+        frame["品牌"]
+        .map(normalize_identifier)
+        .astype("string")
+    )
+
+    sku = (
+        frame["SKU"]
+        .map(normalize_identifier)
+        .astype("string")
+    )
 
     key = brand + sku
     return key.mask(brand.isna() | sku.isna())
@@ -144,14 +164,18 @@ def month_text(base_date: date, offset: int = 0) -> str:
 def validate_mmdd(mmdd: str) -> None:
     if not re.fullmatch(r"\d{4}", mmdd):
         raise WorkbookError(
-            "上次版本日期必须是 4 位 MMDD，例如 0605。"
+            "上次版本日期必须是4位MMDD，例如0605。"
         )
 
     try:
-        date(2000, int(mmdd[:2]), int(mmdd[2:]))
+        date(
+            2000,
+            int(mmdd[:2]),
+            int(mmdd[2:]),
+        )
     except ValueError as exc:
         raise WorkbookError(
-            "上次版本日期不是有效的 MMDD 日期。"
+            "上次版本日期不是有效的MMDD日期。"
         ) from exc
 
 
@@ -194,7 +218,9 @@ def find_previous_total_column(
             candidate_date.month == run_date.month
             and candidate_date.day < run_date.day
         ):
-            candidates.append((candidate_date.day, str(column)))
+            candidates.append(
+                (candidate_date.day, str(column))
+            )
 
     return max(
         candidates,
@@ -212,19 +238,25 @@ def read_workbooks(files):
     assert_columns(
         psi,
         ["SKU", "品牌", *DEMAND_COLUMNS],
-        "PSI 文件",
+        "PSI文件",
     )
 
     assert_columns(
         delivery,
-        ["SKU", "品牌", "客户类型", "m_0", "m_0安全库存"],
+        [
+            "SKU",
+            "品牌",
+            "客户类型",
+            "m_0",
+            "m_0安全库存",
+        ],
         "提货跟进表",
     )
 
     assert_columns(
         template,
         ["Key"],
-        "FCST 总表模板",
+        "FCST总表模板",
     )
 
     assert_columns(
@@ -249,12 +281,14 @@ def build_forecast_workbook(
 
     psi, delivery, template, master = read_workbooks(files)
 
+    # 清理SKU和品牌字段
     for frame in (psi, delivery, master):
         frame["SKU"] = (
             frame["SKU"]
             .map(normalize_identifier)
             .astype("string")
         )
+
         frame["品牌"] = (
             frame["品牌"]
             .map(normalize_identifier)
@@ -288,8 +322,8 @@ def build_forecast_workbook(
 
     if template["Key"].duplicated().any():
         warnings.append(
-            "FCST 总表模板存在重复 Key，"
-            "已保留每个 Key 的第一行。"
+            "FCST总表模板存在重复Key，"
+            "已保留每个Key的第一行。"
         )
 
         template = template.drop_duplicates(
@@ -300,7 +334,7 @@ def build_forecast_workbook(
     coerce_numeric_columns(
         psi,
         DEMAND_COLUMNS,
-        "PSI 文件",
+        "PSI文件",
     )
 
     coerce_numeric_columns(
@@ -309,11 +343,14 @@ def build_forecast_workbook(
         "提货跟进表",
     )
 
-    # PSI 汇总
+    # 汇总PSI需求
     psi["Key"] = make_key(psi)
 
     pivot_psi = (
-        psi.groupby("Key", as_index=False)[DEMAND_COLUMNS]
+        psi.groupby(
+            "Key",
+            as_index=False,
+        )[DEMAND_COLUMNS]
         .sum()
     )
 
@@ -321,40 +358,96 @@ def build_forecast_workbook(
         ~(pivot_psi[DEMAND_COLUMNS] == 0).all(axis=1)
     ]
 
-    # 提货数据汇总
+    # 清理提货跟进表客户类型
     delivery["Key"] = make_key(delivery)
+
     delivery["客户类型"] = (
         delivery["客户类型"]
         .astype("string")
         .str.strip()
+        .replace("", pd.NA)
     )
 
-    pivot_delivery = (
-        delivery.pivot_table(
-            index="Key",
-            columns="客户类型",
-            values="m_0",
-            aggfunc="sum",
-            fill_value=0,
+    blank_customer_type = delivery["客户类型"].isna()
+    blank_count = int(blank_customer_type.sum())
+
+    if blank_count:
+        warnings.append(
+            f"提货跟进表有{blank_count}行客户类型为空；"
+            "这些行的m_0未计入预计总提货，"
+            "但安全库存仍参与汇总。"
         )
-        .reset_index()
-        .rename_axis(columns=None)
+
+    # 提醒存在未支持的客户类型
+    nonempty_customer_types = (
+        delivery.loc[
+            delivery["客户类型"].notna(),
+            "客户类型",
+        ]
+        .drop_duplicates()
+        .astype(str)
     )
 
+    unknown_customer_types = sorted(
+        customer_type
+        for customer_type in nonempty_customer_types
+        if customer_type not in DELIVERY_TYPES
+    )
+
+    if unknown_customer_types:
+        warnings.append(
+            "发现未支持的客户类型："
+            f"{'、'.join(unknown_customer_types)}；"
+            "这些类型的m_0未计入预计总提货。"
+        )
+
+    # 只汇总TO-B、TO-C、TO-MKT
+    valid_delivery = delivery.loc[
+        delivery["客户类型"].isin(DELIVERY_TYPES)
+    ].copy()
+
+    if valid_delivery.empty:
+        pivot_delivery = pd.DataFrame(
+            {
+                "Key": pd.Series(dtype="string"),
+                "TO-B": pd.Series(dtype="float64"),
+                "TO-C": pd.Series(dtype="float64"),
+                "TO-MKT": pd.Series(dtype="float64"),
+            }
+        )
+    else:
+        pivot_delivery = (
+            valid_delivery.pivot_table(
+                index="Key",
+                columns="客户类型",
+                values="m_0",
+                aggfunc="sum",
+                fill_value=0,
+            )
+            .reset_index()
+            .rename_axis(columns=None)
+        )
+
+    # 即使源文件缺少其中一种客户类型，也补0列
     for customer_type in DELIVERY_TYPES:
         if customer_type not in pivot_delivery.columns:
             pivot_delivery[customer_type] = 0
 
     pivot_delivery["m_0预计总提货"] = (
-        pivot_delivery[DELIVERY_TYPES].sum(axis=1)
+        pivot_delivery[DELIVERY_TYPES]
+        .sum(axis=1)
     )
 
+    # 安全库存仍汇总所有客户类型，包括客户类型为空的行
     pivot_safety_stock = (
-        delivery.groupby("Key", as_index=False)["m_0安全库存"]
+        delivery.groupby(
+            "Key",
+            as_index=False,
+        )["m_0安全库存"]
         .sum()
     )
 
-    # 连续合并，不能从 template 重新开始合并
+    # 连续合并各数据源
     result = template.merge(
         pivot_delivery,
         on="Key",
@@ -397,7 +490,7 @@ def build_forecast_workbook(
         + result["m_0安全库存"]
     )
 
-    # 提取 SKU
+    # 从Key中提取SKU
     if "SKU" not in result.columns:
         result["SKU"] = result["Key"].apply(
             extract_sku_from_key
@@ -418,12 +511,12 @@ def build_forecast_workbook(
         if column not in result.columns:
             result[column] = pd.NA
 
-    # 主数据按 品牌 + SKU 合并，避免不同品牌的同 SKU 串数据
+    # 主数据按品牌+SKU生成Key，避免不同品牌的相同SKU串数据
     master["Key"] = make_key(master)
 
     if master["Key"].duplicated().any():
         warnings.append(
-            "主数据存在重复的品牌 + SKU，"
+            "主数据存在重复的品牌+SKU，"
             "已保留第一条记录。"
         )
 
@@ -464,20 +557,30 @@ def build_forecast_workbook(
 
     result["销售大区"] = "新兴区"
 
+    def get_sheet_brand(value) -> str:
+        if pd.isna(value):
+            return ""
+
+        if value in ["追觅", "光子跃迁"]:
+            return str(value)
+
+        return "MOVA"
+
+    def get_sheet_bu(value) -> str:
+        if pd.isna(value):
+            return ""
+
+        if value in ["造型器", "吹风机", "脱毛仪"]:
+            return "个护"
+
+        return str(value)
+
     sheet_brand = result["品牌"].apply(
-        lambda value: ""
-        if pd.isna(value)
-        else str(value)
-        if value in ["追觅", "光子跃迁"]
-        else "MOVA"
+        get_sheet_brand
     )
 
     sheet_bu = result["BU"].apply(
-        lambda value: ""
-        if pd.isna(value)
-        else "个护"
-        if value in ["造型器", "吹风机", "脱毛仪"]
-        else str(value)
+        get_sheet_bu
     )
 
     result["key for sheet"] = (
@@ -490,7 +593,7 @@ def build_forecast_workbook(
         + today_mmdd
     )
 
-    # 计算与上个版本的差异
+    # 计算与上次版本的差异
     previous_total_column = find_previous_total_column(
         result.columns,
         run_date,
@@ -501,43 +604,76 @@ def build_forecast_workbook(
         coerce_numeric_columns(
             result,
             [previous_total_column],
-            "FCST 总表模板",
+            "FCST总表模板",
         )
 
         result[f"{run_date.month}月与上次的差异"] = (
             result["m_0+m_0安全库存"]
             - result[previous_total_column]
         )
+
     elif previous_mmdd:
         warnings.append(
-            f"未找到 "
-            f"{run_date.month}月需求总和(包含安全库存)"
-            f"({previous_mmdd})，已跳过差异列。"
-        )
-    else:
-        warnings.append(
-            f"未找到 {run_date.month}月可用的上次需求总和列，"
+            f"未找到{run_date.month}月需求总和"
+            f"(包含安全库存)({previous_mmdd})，"
             "已跳过差异列。"
         )
 
-    # TO-B、TO-C 分开输出，同时保留预计总提货合计
+    else:
+        warnings.append(
+            f"未找到{run_date.month}月可用的"
+            "上次需求总和列，已跳过差异列。"
+        )
+
+    # 分别输出三种客户类型和预计总提货
     rename_map = {
-        "TO-B": f"{run_date.month}月TO-B预计提货({today_mmdd})",
-        "TO-C": f"{run_date.month}月TO-C预计提货({today_mmdd})",
-        "m_0预计总提货": f"{run_date.month}月预计总提货({today_mmdd})",
-        "m_0安全库存": f"{run_date.month}月安全库存({today_mmdd})",
+        "TO-B": (
+            f"{run_date.month}月TO-B预计提货"
+            f"({today_mmdd})"
+        ),
+        "TO-C": (
+            f"{run_date.month}月TO-C预计提货"
+            f"({today_mmdd})"
+        ),
+        "TO-MKT": (
+            f"{run_date.month}月TO-MKT预计提货"
+            f"({today_mmdd})"
+        ),
+        "m_0预计总提货": (
+            f"{run_date.month}月预计总提货"
+            f"({today_mmdd})"
+        ),
+        "m_0安全库存": (
+            f"{run_date.month}月安全库存"
+            f"({today_mmdd})"
+        ),
         "m_0+m_0安全库存": (
             f"{run_date.month}月需求总和"
             f"(包含安全库存)({today_mmdd})"
         ),
-        "m_1": f"{month_text(run_date, 1)}需求({today_mmdd})",
-        "m_2": f"{month_text(run_date, 2)}需求({today_mmdd})",
-        "m_3": f"{month_text(run_date, 3)}需求({today_mmdd})",
-        "m_4": f"{month_text(run_date, 4)}需求({today_mmdd})",
-        "m_5": f"{month_text(run_date, 5)}需求({today_mmdd})",
+        "m_1": (
+            f"{month_text(run_date, 1)}需求"
+            f"({today_mmdd})"
+        ),
+        "m_2": (
+            f"{month_text(run_date, 2)}需求"
+            f"({today_mmdd})"
+        ),
+        "m_3": (
+            f"{month_text(run_date, 3)}需求"
+            f"({today_mmdd})"
+        ),
+        "m_4": (
+            f"{month_text(run_date, 4)}需求"
+            f"({today_mmdd})"
+        ),
+        "m_5": (
+            f"{month_text(run_date, 5)}需求"
+            f"({today_mmdd})"
+        ),
     }
 
-    # 防止重复生成同一天时产生重复列
+    # 防止同一天重复生成时出现重复列名
     existing_targets = [
         target
         for source, target in rename_map.items()
@@ -556,7 +692,7 @@ def build_forecast_workbook(
         inplace=True,
     )
 
-    # 只对文本列填空字符串
+    # 文本字段填空字符串，数字字段保持数字
     for column in ["销售大区", *MASTER_COLUMNS]:
         if column in result.columns:
             result[column] = result[column].fillna("")
@@ -578,7 +714,7 @@ def main() -> None:
     if not require_password():
         return
 
-    st.title("FCST 生成工具-TOBTOC")
+    st.title("FCST 生成工具-区分客户类型版")
 
     settings_col, action_col = st.columns([1, 2])
 
@@ -590,12 +726,12 @@ def main() -> None:
 
         previous_mmdd = st.text_input(
             "上次版本日期",
-            placeholder="例如 0605",
+            placeholder="例如0605",
         ).strip() or None
 
     with action_col:
         psi_file = st.file_uploader(
-            "PSI 文件",
+            "PSI文件",
             type=["xlsx", "xlsm", "xls"],
         )
 
@@ -605,7 +741,7 @@ def main() -> None:
         )
 
         template_file = st.file_uploader(
-            "FCST 总表模板",
+            "FCST总表模板",
             type=["xlsx", "xlsm", "xls"],
         )
 
@@ -631,16 +767,20 @@ def main() -> None:
 
     if generate:
         try:
-            result, output, warnings = build_forecast_workbook(
-                uploaded_files,
-                run_date,
-                previous_mmdd,
+            result, output, warnings = (
+                build_forecast_workbook(
+                    uploaded_files,
+                    run_date,
+                    previous_mmdd,
+                )
             )
+
         except WorkbookError as exc:
             st.error(str(exc))
             return
+
         except Exception as exc:
-            st.error("生成失败，请检查 Excel 文件格式。")
+            st.error("生成失败，请检查Excel文件格式。")
             st.exception(exc)
             return
 
@@ -652,7 +792,10 @@ def main() -> None:
         st.download_button(
             label="下载总表",
             data=output,
-            file_name=f"fcst-总表({run_date.strftime('%m%d')}).xlsx",
+            file_name=(
+                f"fcst-总表"
+                f"({run_date.strftime('%m%d')}).xlsx"
+            ),
             mime=(
                 "application/vnd.openxmlformats-officedocument."
                 "spreadsheetml.sheet"
