@@ -1,4 +1,5 @@
-﻿import hmac
+## 不按照客户类型拆分只上传一个跟进表版本-最基础版本
+import hmac
 import os
 import re
 from datetime import date
