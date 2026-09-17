@@ -1,4 +1,4 @@
-## AI coding Modify
+## 在app.py基础上修改 添加pivot部分
 import hmac
 import os
 import re
