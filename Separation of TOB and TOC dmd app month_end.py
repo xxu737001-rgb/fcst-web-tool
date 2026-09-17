@@ -1,3 +1,4 @@
+##在sepatation of tob and toc dmd app.py上修改 只增加delivery_1
 import hmac
 import os
 import re
